@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Live Reservation System</title>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50">
+<div id="root"></div>
+
+<script type="text/babel">
+
+const API_BASE = "https://svp-international-api.pacc.sa/api/v1/individual_labor_space";
+
+function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+export default function ReservationApp() {
+  const [token, setToken] = React.useState(""); 
+  const [loading, setLoading] = React.useState(false);
+  const [testCenters, setTestCenters] = React.useState([]);
+  const [sessions, setSessions] = React.useState([]);
+  const [selectedCenter, setSelectedCenter] = React.useState(null);
+  const [selectedSession, setSelectedSession] = React.useState(null);
+  const [message, setMessage] = React.useState(null);
+  const controllerRef = React.useRef(null);
+
+  const MOCK_SESSIONS = [
+    {
+      id: 902463,
+      test_center: {
+        test_center_id: 171,
+        test_center_name: "Jashore Technical Training Centre",
+        address: "Nazir Sankar pur Jashore",
+        test_center_city: "Khulna"
+      },
+      category: { english_name: "Load and Unload Worker" },
+      test_date: "03/11/2025",
+      test_time: "06:30",
+      available_seats: 21,
+      seats: 50,
+      start_at_in_browser_time_zone: "2025-11-03 06:30:00"
+    }
+  ];
+
+  React.useEffect(() => {
+    fetchAllSessions();
+  }, []);
+
+  async function safeFetch(url, opts = {}, timeout = 8000) {
+    if (controllerRef.current) { try { controllerRef.current.abort(); } catch{} }
+    controllerRef.current = new AbortController();
+    const signal = controllerRef.current.signal;
+
+    const timeoutId = setTimeout(() => { try { controllerRef.current.abort(); } catch{} }, timeout);
+
+    try {
+      const res = await fetch(url, { ...opts, signal });
+      clearTimeout(timeoutId);
+      return res;
+    } catch(err) {
+      clearTimeout(timeoutId);
+      if(err.name === 'AbortError') throw new Error("Request timed out or CORS blocked.");
+      if(err instanceof TypeError) throw new Error("Network error / CORS issue. Use proxy or check token.");
+      throw err;
+    }
+  }
+
+  async function fetchAllSessions() {
+    setLoading(true);
+    setMessage(null);
+    try {
+      const url = `${API_BASE}/exam_sessions?category_id=159&city=Khulna&exam_date=2025-11-03&locale=en`;
+      const res = await safeFetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } }, 10000);
+      if(!res.ok) throw new Error(`Status ${res.status}`);
+      const data = await res.json();
+      if(Array.isArray(data) && data.length) {
+        setSessions(data);
+        // extract unique centers
+        const centersMap = {};
+        data.forEach(s => { if(s?.test_center) centersMap[s.test_center.test_center_id] = s.test_center; });
+        setTestCenters(Object.values(centersMap));
+      } else {
+        setMessage({ type: "info", text: "No sessions found. Showing default test center." });
+        setTestCenters(MOCK_SESSIONS.map(s => s.test_center));
+        setSessions(MOCK_SESSIONS);
+      }
+    } catch(err) {
+      console.error(err);
+      setMessage({ type: "error", text: err.message });
+      setTestCenters(MOCK_SESSIONS.map(s => s.test_center));
+      setSessions(MOCK_SESSIONS);
+    } finally { setLoading(false); }
+  }
+
+  async function createReservation(sessionId) {
+    if(!token) return setMessage({ type: "error", text: "Paste your Bearer token first." });
+    setLoading(true); setMessage(null);
+    try {
+      const payload = { exam_session_id: sessionId, occupation_id: 2061, language_code: "en" };
+      const url = `${API_BASE}/exam_reservations?locale=en`;
+      const res = await safeFetch(url, {
+        method: "POST",
+        headers: { "Content-Type":"application/json", Authorization:`Bearer ${token}` },
+        body: JSON.stringify(payload)
+      }, 10000);
+      const data = await res.json();
+      if(!res.ok) throw new Error(JSON.stringify(data));
+      setMessage({ type:"success", text:`Reservation created. ID: ${data.id || 'N/A'}` });
+    } catch(err) { console.error(err); setMessage({ type:"error", text: err.message }); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <div className="min-h-screen p-6 max-w-6xl mx-auto">
+      <header className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold">Live Reservation System</h1>
+        <div className="flex gap-3 items-center">
+          <input placeholder="Bearer token" className="border p-1 rounded w-72" value={token} onChange={e=>setToken(e.target.value)} />
+          <button className="px-2 py-1 border rounded text-sm" onClick={fetchAllSessions}>Refresh</button>
+        </div>
+      </header>
+
+      {message && <div className={`mb-4 p-3 rounded ${message.type==="error"?"bg-red-100 text-red-800":"bg-green-100 text-green-800"}`}>{message.text}</div>}
+
+      <div className="grid grid-cols-3 gap-6">
+        <div className="col-span-1 bg-white p-4 rounded shadow">
+          <h2 className="font-semibold mb-2">Test Centers</h2>
+          <div className="space-y-2 max-h-96 overflow-auto">
+            {testCenters.map(center=>(
+              <div key={center.test_center_id} className="p-2 border rounded hover:bg-slate-50 cursor-pointer" onClick={()=>setSelectedCenter(center)}>
+                <div className="font-medium">{center.test_center_name}</div>
+                <div className="text-xs text-slate-600">{center.address}</div>
+                <div className="text-xs text-slate-600">{center.test_center_city}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="col-span-2 bg-white p-4 rounded shadow">
+          <h2 className="font-semibold mb-2">Sessions {selectedCenter?`— ${selectedCenter.test_center_name}`:""}</h2>
+          {loading && <div className="mb-3 text-sm">Loading...</div>}
+          {sessions.filter(s=>s.test_center.test_center_id===selectedCenter?.test_center_id).map(s=>(
+            <div key={s.id} className="p-3 border rounded flex justify-between items-center mb-2">
+              <div>
+                <div className="font-medium">{s.category?.english_name}</div>
+                <div className="text-sm text-slate-600">Date: {s.test_date}</div>
+                <div className="text-sm text-slate-600">Time: {s.test_time}</div>
+                <div className="text-sm text-slate-600">Available seats: {s.available_seats ?? s.seats}</div>
+              </div>
+              <div>
+                <button className="px-3 py-1 border rounded text-sm" onClick={()=>createReservation(s.id)}>Reserve</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<ReservationApp />);
+
+</script>
+</body>
+</html>
