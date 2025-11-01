@@ -1,0 +1,18 @@
+{
+  "name": "svp-reschedule",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "vite preview"
+  },
+  "dependencies": {
+    "vue": "^3.3.4",
+    "axios": "^1.6.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^4.3.3",
+    "vite": "^4.5.0"
+  }
+}
